@@ -1,4 +1,4 @@
-name: Bump casks
+name: Bump qownnotes
 
 on:
   schedule:
@@ -8,7 +8,7 @@ on:
 permissions:
   contents: write
 
-concurrency: bump
+concurrency: qownnotes-bump
 
 jobs:
   qownnotes:

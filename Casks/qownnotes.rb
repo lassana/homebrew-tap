@@ -2,8 +2,7 @@ cask "qownnotes" do
   version "26.11.15"
   sha256 "61b9c79f435e3d62b2b845d2caa4d383537b53d142e4456392255a9e91e5f134"
 
-  url "https://github.com/pbek/QOwnNotes/releases/download/v#{version}/QOwnNotes.dmg",
-      verified: "github.com/pbek/QOwnNotes/"
+  url "https://github.com/pbek/QOwnNotes/releases/download/v#{version}/QOwnNotes.dmg"
   name "QOwnNotes"
   desc "Plain-text file notepad and todo-list manager"
   homepage "https://www.qownnotes.org/"

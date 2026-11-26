@@ -2,8 +2,7 @@ cask "hiddify" do
   version "5.9.15"
   sha256 "5d095a63af1130535f3f2dc50342242df2c2ea5bc153151c8ef79923cc6cbd3f"
 
-  url "https://github.com/hiddify/hiddify-app/releases/download/v#{version}/Hiddify-MacOS.dmg",
-      verified: "github.com/hiddify/hiddify-app/"
+  url "https://github.com/hiddify/hiddify-app/releases/download/v#{version}/Hiddify-MacOS.dmg"
   name "Hiddify"
   desc "Multi-protocol proxy client based on sing-box"
   homepage "https://hiddify.com/"

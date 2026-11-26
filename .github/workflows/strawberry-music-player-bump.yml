@@ -63,6 +63,22 @@ jobs:
           rm strawberry-macos-arm64-release.tar.xz
           echo "$PREFIX/bin" >> "$GITHUB_PATH"
 
+      # Releases up to 1.2.31 need Boost headers, which the current dependency
+      # bundle no longer ships.
+      - name: Add Boost headers if the release needs them
+        env:
+          BOOST_VERSION: 1.92.0
+          BOOST_SHA256: 5c1d40cb8e19adbf740a4ec2da35b3e58f3f5804b1dce44deb53df72193cbc6c
+        run: |
+          set -euo pipefail
+          grep -q 'find_package(Boost' src/CMakeLists.txt || exit 0
+          dir=boost_${BOOST_VERSION//./_}
+          curl -fsSL --retry 3 -O "https://archives.boost.io/release/$BOOST_VERSION/source/$dir.tar.bz2"
+          echo "$BOOST_SHA256  $dir.tar.bz2" | shasum -a 256 -c
+          tar -C "$RUNNER_TEMP" -xf "$dir.tar.bz2" "$dir/boost"
+          rm "$dir.tar.bz2"
+          echo "BOOST_ARGS=-DBoost_INCLUDE_DIR=$RUNNER_TEMP/$dir" >> "$GITHUB_ENV"
+
       - name: Set the deployment target Qt was built with
         run: |
           set -euo pipefail
@@ -83,6 +99,7 @@ jobs:
           -DENABLE_SPOTIFY=$(test -f "$PREFIX/lib/gstreamer-1.0/libgstspotify.dylib" && echo ON || echo OFF)
           -DENABLE_SPARKLE=OFF
           -DENABLE_QTSPARKLE=OFF
+          $BOOST_ARGS
 
       - name: Build
         run: cmake --build build --parallel "$(sysctl -n hw.ncpu)"

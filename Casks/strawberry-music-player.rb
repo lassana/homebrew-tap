@@ -1,6 +1,6 @@
 cask "strawberry-music-player" do
-  version "1.2.30"
-  sha256 "0000000000000000000000000000000000000000000000000000000000000000"
+  version "1.2.31"
+  sha256 "def6d2fbfdc14302b55855aa91ea33d683c89775e0ad8ff7da9566181f6fcbd6"
 
   url "https://github.com/lassana/homebrew-tap/releases/download/strawberry-#{version}/strawberry-#{version}-arm64.dmg"
   name "Strawberry Music Player"

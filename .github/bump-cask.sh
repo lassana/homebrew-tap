@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Bumps a cask to the latest upstream release.
 # Usage: bump-cask.sh <cask-token> github <owner/repo> <asset-name>
+#        ("{version}" in the asset name stands for the release version)
 #        bump-cask.sh <cask-token> verfile <version-url> <download-url>
 # Requires GH_TOKEN (github source) and RUNNER_TEMP.
 set -euo pipefail
@@ -17,10 +18,11 @@ skip() {
 
 case $source in
   github)
-    repo=$3 asset=$4
+    repo=$3
     release=$(gh release view -R "$repo" --json tagName,assets)
     tag=$(jq -r .tagName <<<"$release")
     version=${tag#v}
+    asset=${4//\{version\}/$version}
     url=https://github.com/$repo/releases/download/$tag/$asset
     jq -e --arg a "$asset" '.assets[] | select(.name == $a)' <<<"$release" >/dev/null ||
       skip "$tag has no $asset yet"
@@ -44,10 +46,12 @@ if [[ $version == "$current" ]]; then
   exit 0
 fi
 
-file=$RUNNER_TEMP/$token.dmg
+file=$RUNNER_TEMP/$token.download
 curl -fsSL --retry 3 -o "$file" "$url" || skip "download failed"
 # A disk image ends with a 512-byte trailer that starts with "koly".
-[[ $(tail -c 512 "$file" | head -c 4) == koly ]] || skip "download is not a disk image"
+if [[ $url == *.dmg && $(tail -c 512 "$file" | head -c 4) != koly ]]; then
+  skip "download is not a disk image"
+fi
 sha=$(sha256sum "$file" | cut -d' ' -f1)
 
 sed -i \

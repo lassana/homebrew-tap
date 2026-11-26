@@ -1,0 +1,159 @@
+name: Bump strawberry-music-player
+
+on:
+  schedule:
+    - cron: "47 3 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency: strawberry-music-player-bump
+
+env:
+  UPSTREAM: strawberrymusicplayer/strawberry
+  CASK: Casks/strawberry-music-player.rb
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.check.outputs.version }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Compare the cask with the latest release
+        id: check
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          version=$(gh release view -R "$UPSTREAM" --json tagName -q .tagName)
+          if [[ ! $version =~ ^[0-9]+(\.[0-9]+)+$ ]]; then
+            echo "::error::Unexpected release tag: $version"
+            exit 1
+          fi
+          current=$(sed -n 's/^  version "\(.*\)"$/\1/p' "$CASK")
+          if [[ $version == "$current" ]]; then
+            echo "Already at $current"
+          else
+            echo "version=$version" >> "$GITHUB_OUTPUT"
+          fi
+
+  # Follows the macOS job of upstream's .github/workflows/build.yaml, without
+  # signing, notarization, Sparkle updates and API credentials.
+  build:
+    needs: check
+    if: needs.check.outputs.version != ''
+    runs-on: macos-15
+    env:
+      VERSION: ${{ needs.check.outputs.version }}
+      PREFIX: /opt/strawberry_macos_arm64_release
+    steps:
+      - name: Hide Homebrew from the build
+        run: sudo mv /opt/homebrew /opt/homebrew.disabled
+
+      - name: Check out the release
+        run: git clone --recursive --depth 1 --branch "$VERSION" "https://github.com/$UPSTREAM" src
+
+      - name: Install dependencies
+        run: |
+          curl -fsSL --retry 3 -O https://github.com/strawberrymusicplayer/strawberry-macos-dependencies/releases/latest/download/strawberry-macos-arm64-release.tar.xz
+          sudo tar -C / -xf strawberry-macos-arm64-release.tar.xz
+          rm strawberry-macos-arm64-release.tar.xz
+          echo "$PREFIX/bin" >> "$GITHUB_PATH"
+
+      - name: Set the deployment target Qt was built with
+        run: |
+          set -euo pipefail
+          target=$(otool -l "$PREFIX/lib/QtCore.framework/QtCore" | awk '/LC_BUILD_VERSION/ { b = 1 } !found && b && $1 == "minos" { print $2; found = 1 }')
+          [[ -n $target ]]
+          echo "MACOSX_DEPLOYMENT_TARGET=$target" | tee -a "$GITHUB_ENV"
+
+      - name: Configure
+        env:
+          PKG_CONFIG_PATH: ${{ env.PREFIX }}/lib/pkgconfig
+          LDFLAGS: -L${{ env.PREFIX }}/lib -Wl,-rpath,${{ env.PREFIX }}/lib
+        run: >
+          cmake -S src -B build
+          -DCMAKE_BUILD_TYPE=Release
+          -DCMAKE_PREFIX_PATH="$PREFIX/lib/cmake"
+          -DUSE_BUNDLE=ON
+          -DICU_ROOT="$PREFIX"
+          -DENABLE_SPOTIFY=$(test -f "$PREFIX/lib/gstreamer-1.0/libgstspotify.dylib" && echo ON || echo OFF)
+          -DENABLE_SPARKLE=OFF
+          -DENABLE_QTSPARKLE=OFF
+
+      - name: Build
+        run: cmake --build build --parallel "$(sysctl -n hw.ncpu)"
+
+      - name: Install
+        working-directory: build
+        run: make install
+
+      - name: Deploy
+        working-directory: build
+        run: make deploy
+
+      - name: Sign ad hoc
+        working-directory: build
+        run: |
+          codesign --force --deep --sign - strawberry.app
+          codesign --verify --deep --strict strawberry.app
+          /usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' -c 'Print :LSMinimumSystemVersion' strawberry.app/Contents/Info.plist
+
+      - name: Create DMG
+        working-directory: build
+        run: |
+          make dmg
+          mv strawberry-*.dmg "$RUNNER_TEMP/strawberry-$VERSION-arm64.dmg"
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: dmg
+          path: ${{ runner.temp }}/strawberry-${{ env.VERSION }}-arm64.dmg
+          if-no-files-found: error
+          retention-days: 3
+
+  publish:
+    needs: [check, build]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      VERSION: ${{ needs.check.outputs.version }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: dmg
+          path: ${{ runner.temp }}
+
+      - name: Release the build and update the cask
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          tag=strawberry-$VERSION
+          dmg=$RUNNER_TEMP/strawberry-$VERSION-arm64.dmg
+          sha=$(sha256sum "$dmg" | cut -d' ' -f1)
+
+          if gh release view "$tag" >/dev/null 2>&1; then
+            gh release upload "$tag" "$dmg" --clobber
+          else
+            gh release create "$tag" "$dmg" --latest=false \
+              --title "Strawberry $VERSION" \
+              --notes "Unofficial, unsigned arm64 build of [Strawberry $VERSION](https://github.com/$UPSTREAM/tree/$VERSION) (GPL-3.0), built from the unmodified upstream source by the \`strawberry-music-player-bump\` workflow."
+          fi
+
+          sed -i \
+            -e "s/^  version \".*\"$/  version \"$VERSION\"/" \
+            -e "s/^  sha256 \".*\"$/  sha256 \"$sha\"/" \
+            "$CASK"
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -am "strawberry-music-player $VERSION"
+          git pull --rebase
+          git push

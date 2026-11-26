@@ -78,6 +78,8 @@ jobs:
           tar -C "$RUNNER_TEMP" -xf "$dir.tar.bz2" "$dir/boost"
           rm "$dir.tar.bz2"
           echo "BOOST_ARGS=-DBoost_INCLUDE_DIR=$RUNNER_TEMP/$dir" >> "$GITHUB_ENV"
+          # The targets do not add the Boost include directory themselves.
+          echo "CPLUS_INCLUDE_PATH=$RUNNER_TEMP/$dir" >> "$GITHUB_ENV"
 
       - name: Set the deployment target Qt was built with
         run: |
